@@ -30,11 +30,11 @@ const FORMAT_CONFIG = {
 };
 
 const REPORT_TEMPLATES = [
-    { id: 'executive', name: 'Executive Summary', description: 'High-level risk overview for stakeholders and management', format: 'pdf' },
-    { id: 'technical', name: 'Technical Deep-Dive', description: 'Full technical details with CVSS scores and remediation guidance', format: 'pdf' },
-    { id: 'compliance', name: 'Compliance Report', description: 'OWASP / PCI-DSS / NIST compliance mapping and gap analysis', format: 'pdf' },
-    { id: 'html_web', name: 'Interactive Web Report', description: 'Self-contained HTML security assessment report with visual dashboard', format: 'html' },
-    { id: 'json_export', name: 'JSON Export', description: 'Machine-readable findings for integration with SIEM / ticketing', format: 'json' },
+    { id: 'executive', name: 'Executive Summary', description: 'Cover, scope, executive summary, risk counts, and remediation priorities from the actual scan', format: 'pdf' },
+    { id: 'technical', name: 'Technical VAPT Report', description: 'Full assessment: methodology, evidence-backed findings, remediation, limitations, and appendices', format: 'pdf' },
+    { id: 'compliance', name: 'OWASP Mapping Report', description: 'Technical report plus OWASP Top 10 mapping. Not a PCI/ISO/NIST certification.', format: 'pdf' },
+    { id: 'html_web', name: 'HTML Assessment Report', description: 'Self-contained HTML report generated from the same scan records as the PDF', format: 'html' },
+    { id: 'json_export', name: 'JSON Export', description: 'Machine-readable structured assessment (redacted evidence) for tooling', format: 'json' },
 ];
 
 export default function ReportsPage() {
@@ -49,6 +49,7 @@ export default function ReportsPage() {
     const [generateError, setGenerateError] = useState('');
     const [downloadError, setDownloadError] = useState('');
     const [downloadingId, setDownloadingId] = useState(null);
+    const [regeneratingId, setRegeneratingId] = useState(null);
     const toast = useToast();
 
     useEffect(() => {
@@ -79,21 +80,38 @@ export default function ReportsPage() {
         setDownloadError('');
         try {
             const res = await reportAPI.download(report.id);
-            const url = URL.createObjectURL(res.data);
+            const blob = res.data;
+            if (blob && blob.type && String(blob.type).includes('application/json')) {
+                const text = await blob.text();
+                let message = 'Download failed.';
+                try { message = JSON.parse(text)?.error?.message || message; } catch { /* keep default */ }
+                throw new Error(message);
+            }
+            const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `${report.title}.${report.format}`;
-            // Must append to the DOM for reliable clicks across browsers, and the
-            // object URL must NOT be revoked synchronously — Chrome starts the
-            // blob download asynchronously and would abort it if the URL is gone.
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 1000);
             toast('Report downloaded.', 'success');
         } catch (err) {
-            setDownloadError(err.response?.data?.error?.message || 'Download failed — the report file may no longer be available. Try regenerating it.');
+            const fromBlob = err.message && !err.response ? err.message : null;
+            setDownloadError(fromBlob || err.response?.data?.error?.message || 'Download failed — the report file may no longer be available. Try regenerating it.');
         } finally { setDownloadingId(null); }
+    };
+
+    const handleRegenerate = async (report) => {
+        setRegeneratingId(report.id);
+        setDownloadError('');
+        try {
+            await reportAPI.regenerate(report.id);
+            toast('Report regeneration queued.', 'success');
+            loadReports();
+        } catch (err) {
+            setDownloadError(err.response?.data?.error?.message || 'Could not regenerate this report.');
+        } finally { setRegeneratingId(null); }
     };
 
     const handleGenerate = async () => {
@@ -240,6 +258,11 @@ export default function ReportsPage() {
                                                             <Spinner size={10} /> Generating report…
                                                         </p>
                                                     )}
+                                                    {report.status === 'failed' && (
+                                                        <p className="text-[12px] text-red-400 mt-1">
+                                                            {report.errorMessage || 'Generation failed. You can regenerate from this scan.'}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                         </td>
@@ -259,6 +282,7 @@ export default function ReportsPage() {
                                             {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                         </td>
                                         <td className="td">
+                                            <div className="flex items-center gap-2">
                                             {report.status === 'completed' ? (
                                                 <button
                                                     onClick={() => handleDownload(report)}
@@ -275,9 +299,21 @@ export default function ReportsPage() {
                                                         </>
                                                     )}
                                                 </button>
+                                            ) : report.status === 'failed' ? (
+                                                <span className="text-slate-500 text-[12px]">Unavailable</span>
                                             ) : (
                                                 <span className="text-slate-600 text-[12px]">—</span>
                                             )}
+                                            {(report.status === 'completed' || report.status === 'failed') && (
+                                                <button
+                                                    onClick={() => handleRegenerate(report)}
+                                                    disabled={regeneratingId === report.id}
+                                                    className="btn-ghost !px-3 !py-1.5 !text-[12px]"
+                                                >
+                                                    {regeneratingId === report.id ? <><Spinner size={11} /> Regenerating…</> : 'Regenerate'}
+                                                </button>
+                                            )}
+                                            </div>
                                         </td>
                                     </tr>
                                 );

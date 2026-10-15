@@ -270,9 +270,27 @@ paths:
               properties:
                 scanId: { type: string, format: uuid }
                 title: { type: string }
-                format: { type: string, enum: [pdf, html] }
+                format: { type: string, enum: [pdf, html, json] }
+                template: { type: string, enum: [executive, technical, compliance, html_web, json_export] }
       responses:
         '202': { description: Report generation started }
+
+  /reports/{id}:
+    get:
+      summary: Get report metadata
+      tags: [Reports]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Report metadata }
+        '404': { description: Report not found }
+
+  /reports/{id}/regenerate:
+    post:
+      summary: Regenerate an existing report from the same scan
+      tags: [Reports]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '202': { description: Regeneration started }
 
   /reports/{id}/download:
     get:

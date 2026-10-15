@@ -25,6 +25,16 @@ const Report = sequelize.define('Report', {
         type: DataTypes.ENUM('pdf', 'html', 'json'),
         defaultValue: 'pdf',
     },
+    template: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+        defaultValue: 'technical',
+    },
+    version: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: '1.0',
+    },
     status: {
         type: DataTypes.ENUM('generating', 'completed', 'failed'),
         defaultValue: 'generating',
@@ -36,6 +46,11 @@ const Report = sequelize.define('Report', {
     fileSize: {
         type: DataTypes.INTEGER,
         field: 'file_size',
+    },
+    errorMessage: {
+        type: DataTypes.TEXT,
+        field: 'error_message',
+        allowNull: true,
     },
 }, {
     tableName: 'reports',

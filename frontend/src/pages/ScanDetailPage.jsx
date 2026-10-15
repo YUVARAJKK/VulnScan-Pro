@@ -235,7 +235,7 @@ export default function ScanDetailPage() {
                 downloadBlob(blob, `vuln-report-${String(id).slice(0, 8)}.${format}`);
                 toast(`${format.toUpperCase()} export downloaded.`, 'success');
             } else if (format === 'pdf') {
-                await reportAPI.create({ scanId: id, title: `Security Assessment — ${scan?.asset?.target || 'Target'}`, format: 'pdf' });
+                await reportAPI.create({ scanId: id, title: `Web Application Vulnerability Assessment — ${scan?.asset?.target || 'Target'}`, format: 'pdf', template: 'technical' });
                 toast('PDF report queued — track it on the Reports page.', 'success');
                 navigate('/app/reports');
             }

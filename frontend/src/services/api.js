@@ -70,6 +70,7 @@ export const reportAPI = {
     list: (params) => api.get('/reports', { params }),
     get: (id) => api.get(`/reports/${id}`),
     create: (data) => api.post('/reports', data),
+    regenerate: (id) => api.post(`/reports/${id}/regenerate`),
     download: (id) => api.get(`/reports/${id}/download`, { responseType: 'blob' }),
 };
 
