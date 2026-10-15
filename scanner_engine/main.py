@@ -99,6 +99,45 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+import httpx
+
+
+async def detect_accessible_target(target: str, timeout: float = 6.0) -> tuple[str, bool, str]:
+    """
+    Test target reachability. If target is HTTPS but times out or fails TLS,
+    fall back to HTTP. Returns (effective_target, is_reachable, error_msg).
+    """
+    parsed = urlparse(target)
+    scheme = parsed.scheme.lower() or 'https'
+    netloc = parsed.netloc
+    path = parsed.path or '/'
+
+    # Test order based on current scheme
+    candidate_schemes = ['https', 'http'] if scheme == 'https' else ['http', 'https']
+    last_err = ''
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(timeout, connect=3.5),
+        verify=False,
+        follow_redirects=True,
+    ) as client:
+        for candidate_scheme in candidate_schemes:
+            probe_url = f"{candidate_scheme}://{netloc}{path}"
+            try:
+                resp = await client.get(probe_url)
+                if probe_url != target:
+                    logger.warning(
+                        f"Target {target} unreachable via {scheme.upper()} ({last_err or 'connection/SSL error'}). "
+                        f"Auto-falling back to responsive scheme: {probe_url} (HTTP {resp.status_code})"
+                    )
+                return probe_url, True, ''
+            except Exception as e:
+                last_err = f"{type(e).__name__}: {e}"
+                logger.debug(f"Probe to {probe_url} failed: {last_err}")
+
+    return target, False, f"Target {target} is unreachable on both HTTPS and HTTP ({last_err})"
+
+
 def params_for_url(url: str) -> list[str]:
     """Return real query-parameter names present in a URL."""
     return list(parse_qs(urlparse(url).query).keys())
@@ -108,16 +147,7 @@ async def run_scan(args: argparse.Namespace) -> dict:
     """Execute the full vulnerability scan pipeline."""
     start_time = time.time()
     scan_id = args.scan_id
-    target = normalize_url(args.target)
-    hostname = get_subdomain(target)
-
-    logger.info(f'Starting {args.scan_kind} scan {scan_id} against {target}')
-
-    # SSRF protection (defense in depth — Node.js also validates on submission)
-    is_safe, reason = validate_target(target)
-    if not is_safe:
-        logger.error(f'SSRF check failed: {reason}')
-        return {'success': False, 'error': reason}
+    raw_target = normalize_url(args.target)
 
     # Config
     config = ScannerConfig.from_env()
@@ -128,8 +158,27 @@ async def run_scan(args: argparse.Namespace) -> dict:
     db = DatabaseWriter(args.db_url, scan_kind=args.scan_kind)
 
     try:
+        # SSRF protection (defense in depth — Node.js also validates on submission)
+        is_safe, reason = validate_target(raw_target)
+        if not is_safe:
+            logger.error(f'SSRF check failed: {reason}')
+            db.update_scan_status(scan_id, 'failed', error_message=f'SSRF check failed: {reason}')
+            return {'success': False, 'error': reason}
+
         # Mark as running and report initial progress
         db.update_scan_status(scan_id, 'running', progress=5)
+
+        # Connectivity probe & protocol auto-detection (HTTPS vs HTTP fallback)
+        target, is_reachable, reachability_err = await detect_accessible_target(raw_target)
+        if not is_reachable:
+            logger.error(f'Target reachability check failed: {reachability_err}')
+            db.update_scan_status(scan_id, 'failed', error_message=reachability_err)
+            return {'success': False, 'error': reachability_err}
+
+        target = normalize_url(target)
+        hostname = get_subdomain(target)
+
+        logger.info(f'Starting {args.scan_kind} scan {scan_id} against {target}')
 
         # Phase 1: Discovery
         logger.info('Phase 1: Discovery — crawling, robots.txt, sitemap, technology detection')

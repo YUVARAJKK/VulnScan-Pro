@@ -57,12 +57,12 @@ class HttpClient:
 
     async def __aenter__(self) -> 'HttpClient':
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(self.config.timeout),
+            timeout=httpx.Timeout(self.config.timeout, connect=5.0),
             follow_redirects=True,
             max_redirects=self.config.max_redirects,
             http2=self.config.http2,
             headers={'User-Agent': self.config.user_agent},
-            verify=True,
+            verify=False,
         )
         return self
 
@@ -113,7 +113,7 @@ class HttpClient:
         await self._limiter.acquire()
         async with self._semaphore:
             resp: httpx.Response | None = None
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     resp = await self.client.request(
                         method,
@@ -125,9 +125,9 @@ class HttpClient:
                     break
                 except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
                     logger.debug(f'Request {method} {url} attempt {attempt+1} failed: {e}')
-                    if attempt == 2:
+                    if attempt == 1:
                         raise
-                    await asyncio.sleep(1 * (attempt + 1))
+                    await asyncio.sleep(0.5)
 
             if resp is None:  # Unreachable but keeps mypy happy
                 raise httpx.ConnectError('All retries exhausted')
