@@ -223,7 +223,15 @@ class DatabaseWriter:
                             :id, :scan_id, :health_score, :health_grade, :risk_score,
                             :total_endpoints, :total_parameters, :scan_duration_ms,
                             :scanner_version, :score_breakdown, :created_at
-                        )
+                        ) ON CONFLICT (scan_id) DO UPDATE SET
+                            health_score = EXCLUDED.health_score,
+                            health_grade = EXCLUDED.health_grade,
+                            risk_score = EXCLUDED.risk_score,
+                            total_endpoints = EXCLUDED.total_endpoints,
+                            total_parameters = EXCLUDED.total_parameters,
+                            scan_duration_ms = EXCLUDED.scan_duration_ms,
+                            scanner_version = EXCLUDED.scanner_version,
+                            score_breakdown = EXCLUDED.score_breakdown
                     """),
                     {
                         'id': str(uuid.uuid4()),

@@ -27,6 +27,32 @@ function startScheduler() {
         try {
             const now = new Date();
 
+            // ── Stale-scan recovery ──
+            // If the backend was restarted while scans were in flight their
+            // BullMQ jobs are gone and the rows would sit in 'running' forever.
+            // The engine updates progress continuously, so a scan whose row has
+            // not been touched for more than 20 minutes (well above the 10-minute
+            // PythonScanner kill timeout) is definitively dead.
+            const staleCutoff = new Date(now - 20 * 60 * 1000);
+            const stalled = await Scan.findAll({
+                where: {
+                    status: { [Op.in]: ['queued', 'running'] },
+                    updatedAt: { [Op.lt]: staleCutoff },
+                },
+            });
+            for (const scan of stalled) {
+                const minutesStale = Math.round((now - scan.updatedAt) / 60000);
+                logger.warn(`⏱️ Recovering stalled scan ${scan.id} (no progress for ${minutesStale} min)`);
+                await scan.update({
+                    status: 'failed',
+                    completedAt: now,
+                    errorMessage: scan.errorMessage || `Scan stalled — no progress for ${minutesStale} minutes. The worker may have restarted.`,
+                });
+            }
+            if (stalled.length) {
+                logger.info(`⏱️ ${stalled.length} stalled scan(s) recovered (marked failed — user can retry)`);
+            }
+
             // Find all scheduled scans that are due
             const scheduledScans = await Scan.findAll({
                 where: {

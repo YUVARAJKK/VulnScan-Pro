@@ -117,8 +117,11 @@ class PythonScanner {
 
                 if (code !== 0) {
                     logger.error(`[PythonScanner] Process exited with code ${code}`);
-                    logger.error(`[PythonScanner] stderr: ${stderr.slice(-2000)}`);
-                    reject(new Error(`Python scanner exited with code ${code}: ${stderr.slice(-500)}`));
+                    // Keep a generous tail: truncating too aggressively cut off the
+                    // start of the real error message (e.g. the SQL/psycopg2 error
+                    // before SQLAlchemy's boilerplate), making diagnosis impossible.
+                    logger.error(`[PythonScanner] stderr: ${stderr.slice(-4000)}`);
+                    reject(new Error(`Python scanner exited with code ${code}: ${stderr.slice(-1500)}`));
                     return;
                 }
 
